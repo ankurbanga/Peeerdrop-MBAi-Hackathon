@@ -12,14 +12,13 @@ export const fieldsSchema = z.array(z.enum(shareFields)).max(12);
 export const profileSchema = z
   .object({
     displayName: text.min(1),
+    graduationYear: z.number().int().min(2020).max(2100),
     details: z
       .object({
         hometown: optional,
         industry: optional,
         hobbies: z.array(text.min(1)).max(20).optional(),
-        movies: z.array(text.min(1)).max(20).optional(),
         funFact: z.string().trim().max(500).optional(),
-        relationshipStatus: optional,
         contact: z
           .object({
             phone: z
@@ -67,5 +66,9 @@ export const noteEditSchema = z
   .strict();
 export const interestSchema = z
   .object({ interested: z.boolean(), shareWithConnections: z.boolean() })
+  .strict();
+export const favoriteSchema = z.object({ favorite: z.boolean() }).strict();
+export const aiSearchSchema = z
+  .object({ query: z.string().trim().min(2).max(500) })
   .strict();
 export const uuidSchema = z.string().uuid();

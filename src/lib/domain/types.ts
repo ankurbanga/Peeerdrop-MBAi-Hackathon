@@ -2,9 +2,7 @@ export const shareFields = [
   "hometown",
   "industry",
   "hobbies",
-  "movies",
   "funFact",
-  "relationshipStatus",
   "phone",
   "email",
   "instagram",
@@ -18,9 +16,7 @@ export type Details = {
   hometown?: string;
   industry?: string;
   hobbies?: string[];
-  movies?: string[];
   funFact?: string;
-  relationshipStatus?: string;
   contact?: {
     phone?: string;
     email?: string;
@@ -32,6 +28,7 @@ export type Profile = {
   id: string;
   display_name: string;
   avatar_url: string | null;
+  graduation_year: number;
   details: Details;
   default_share_fields: ShareField[];
   graph_visible: boolean;
@@ -42,12 +39,11 @@ export type SharedCard = {
   id: string;
   displayName: string;
   avatarUrl: string | null;
+  graduationYear?: number;
   hometown?: string;
   industry?: string;
   hobbies?: string[];
-  movies?: string[];
   funFact?: string;
-  relationshipStatus?: string;
   contact?: Details["contact"];
   classes?: Affiliation[];
   clubs?: Affiliation[];
@@ -72,10 +68,17 @@ export type Contact = {
   commonAffiliationIds: string[];
   eventIds: string[];
   mutualCount: number;
+  favorite: boolean;
 };
 export type Edge = { source: string; target: string };
 export type Network = { self: SharedCard; contacts: Contact[]; edges: Edge[] };
+export type AiSearchMatch = { connectionId: string; reason: string };
+export type AiSearchResponse = {
+  matches: AiSearchMatch[];
+  usedFallback: boolean;
+};
 export type Filters = {
+  favorite?: boolean;
   class?: string[];
   club?: string[];
   event?: string[];

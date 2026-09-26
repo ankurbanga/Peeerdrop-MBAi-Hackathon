@@ -9,10 +9,15 @@ import {
   previewExchange,
   requestExchange,
 } from "@/lib/server/exchanges";
-import { getConnectionDetail, getNetwork } from "@/lib/server/network";
+import {
+  getConnectionDetail,
+  getNetwork,
+  setConnectionFavorite,
+} from "@/lib/server/network";
 import { deleteNote, editNote, saveNote } from "@/lib/server/notes";
 import { getCatalog, listEvents, setEventInterest } from "@/lib/server/events";
 import { ensureDemoFixtures } from "@/lib/server/fixtures";
+import { searchPeople } from "@/lib/server/ai-search";
 import {
   createExchangeSchema,
   interestSchema,
@@ -21,6 +26,8 @@ import {
   profileSchema,
   requestExchangeSchema,
   uuidSchema,
+  favoriteSchema,
+  aiSearchSchema,
 } from "@/lib/domain/validation";
 
 const noStore = { "Cache-Control": "no-store, max-age=0" };
@@ -126,6 +133,11 @@ async function handle(request: Request, parts: string[]) {
     requireMethod(method === "GET");
     return json(await getNetwork(client, authId), 200, noStore);
   }
+  if (parts.length === 2 && parts[0] === "search" && parts[1] === "ai") {
+    requireMethod(method === "POST");
+    const input = aiSearchSchema.parse(await body(request));
+    return json(await searchPeople(client, authId, input.query), 200, noStore);
+  }
   if (parts.length === 2 && parts[0] === "connections") {
     requireMethod(method === "GET");
     return json(
@@ -142,6 +154,22 @@ async function handle(request: Request, parts: string[]) {
     requireMethod(method === "POST");
     const input = noteSchema.parse(await body(request));
     return json(await saveNote(client, authId, pathUuid(parts[1]), input), 201);
+  }
+  if (
+    parts.length === 3 &&
+    parts[0] === "connections" &&
+    parts[2] === "favorite"
+  ) {
+    requireMethod(method === "PUT");
+    const input = favoriteSchema.parse(await body(request));
+    return json(
+      await setConnectionFavorite(
+        client,
+        authId,
+        pathUuid(parts[1]),
+        input.favorite,
+      ),
+    );
   }
   if (parts.length === 2 && parts[0] === "notes") {
     const id = pathUuid(parts[1]);

@@ -8,6 +8,7 @@ create table if not exists public.profiles (
   auth_user_id uuid unique,
   display_name text not null check (length(btrim(display_name)) between 1 and 200),
   avatar_url text,
+  graduation_year smallint not null default 2028 check (graduation_year between 2020 and 2100),
   details jsonb not null default '{}'::jsonb
     check (jsonb_typeof(details) = 'object')
     check (details - 'hometown' - 'industry' - 'hobbies' - 'movies' - 'funFact' - 'relationshipStatus' - 'contact' = '{}'::jsonb)
@@ -77,6 +78,13 @@ create table if not exists public.connections (
   constraint connections_distinct_people check (person_a <> person_b),
   constraint connections_canonical_pair check (person_a < person_b),
   unique (person_a, person_b)
+);
+
+create table if not exists public.connection_favorites (
+  profile_id uuid not null references public.profiles(id) on delete cascade,
+  connection_id uuid not null references public.connections(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (profile_id, connection_id)
 );
 
 create table if not exists public.exchanges (
@@ -361,15 +369,16 @@ alter table public.events enable row level security;
 alter table public.event_interests enable row level security;
 alter table public.exchanges enable row level security;
 alter table public.connections enable row level security;
+alter table public.connection_favorites enable row level security;
 alter table public.notes enable row level security;
 alter table public.venue_labels enable row level security;
 
 revoke all on public.profiles, public.affiliations, public.profile_affiliations,
   public.events, public.event_interests, public.exchanges, public.connections,
-  public.notes, public.venue_labels from public, anon, authenticated;
+  public.connection_favorites, public.notes, public.venue_labels from public, anon, authenticated;
 grant all on public.profiles, public.affiliations, public.profile_affiliations,
   public.events, public.event_interests, public.exchanges, public.connections,
-  public.notes, public.venue_labels to service_role;
+  public.connection_favorites, public.notes, public.venue_labels to service_role;
 
 revoke all on function public.request_exchange(text, uuid, jsonb) from public, anon, authenticated;
 revoke all on function public.accept_exchange(uuid, uuid) from public, anon, authenticated;

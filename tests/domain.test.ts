@@ -8,6 +8,10 @@ import {
   mutualCounts,
   matchingInterestTags,
   snapshotContactNames,
+  networkStats,
+  relativeMetTime,
+  sanitizeProfileDetails,
+  addUniqueTag,
 } from "../src/lib/domain/logic";
 import type { Profile, Contact } from "../src/lib/domain/types";
 const p: Profile = {
@@ -16,14 +20,14 @@ const p: Profile = {
   avatar_url: null,
   details: {
     industry: "Healthcare",
-    movies: ["Horror movies"],
+    hobbies: ["Board games"],
     contact: { email: "private@example.com" },
-    relationshipStatus: "Private",
   },
   default_share_fields: [],
   graph_visible: false,
   is_demo: false,
   affiliations: [],
+  graduation_year: 2028,
 };
 const c: Contact = {
   connectionId: "c",
@@ -31,8 +35,9 @@ const c: Contact = {
     id: "b",
     displayName: "Álex",
     avatarUrl: null,
+    graduationYear: 2028,
     industry: "Healthcare",
-    movies: ["Horror movies"],
+    hobbies: ["Board games"],
   },
   metAt: "2026-09-27T02:00:00Z",
   venue: "Global Hub",
@@ -42,6 +47,7 @@ const c: Contact = {
   commonAffiliationIds: [],
   eventIds: [],
   mutualCount: 0,
+  favorite: false,
 };
 describe("sharing and recall", () => {
   it("omits withheld nested and sensitive fields", () => {
@@ -50,11 +56,12 @@ describe("sharing and recall", () => {
       id: "a",
       displayName: "Álex",
       avatarUrl: null,
+      graduationYear: 2028,
       industry: "Healthcare",
     });
   });
   it("matches all normalized fragments across fields", () => {
-    expect(matchesContact(c, "alex health horr", {})).toBe(true);
+    expect(matchesContact(c, "alex health board", {})).toBe(true);
     expect(matchesContact(c, "health soccer", {})).toBe(false);
   });
   it("searches titles of consented event interests", () => {
@@ -78,11 +85,10 @@ describe("sharing and recall", () => {
       ),
     ).toEqual({ a: 1, b: 1 });
   });
-  it("matches event relevance tags against movie details", () => {
+  it("matches event relevance tags against hobby details", () => {
     expect(
       matchingInterestTags(["horror", "careers"], {
-        hobbies: [],
-        movies: ["Horror movies"],
+        hobbies: ["Horror movies"],
         industry: "Healthcare",
       }),
     ).toEqual(["horror"]);
@@ -152,5 +158,59 @@ describe("sharing and recall", () => {
     );
     expect(positions).toHaveLength(20);
     expect(positions[0].position).not.toEqual(positions[8].position);
+  });
+
+  it("summarizes cohort reach, second-years, and close connections", () => {
+    const contacts = [
+      { ...c, card: { ...c.card, graduationYear: 2028 }, favorite: true },
+      {
+        ...c,
+        connectionId: "d",
+        card: { ...c.card, id: "d", graduationYear: 2027 },
+        favorite: false,
+      },
+      {
+        ...c,
+        connectionId: "e",
+        card: { ...c.card, id: "e", graduationYear: 2029 },
+        favorite: true,
+      },
+    ];
+    expect(networkStats(contacts, 2028, 650)).toEqual({
+      cohortPercent: 0.2,
+      directCount: 3,
+      secondYearCount: 1,
+      favoriteCount: 2,
+    });
+  });
+
+  it("describes a meeting relative to now while preserving the exact date elsewhere", () => {
+    expect(
+      relativeMetTime("2026-09-24T18:00:00Z", new Date("2026-09-26T18:00:00Z")),
+    ).toBe("Met 2 days ago");
+  });
+
+  it("removes retired profile fields without mutating current details", () => {
+    const details = {
+      hobbies: ["Board games"],
+      movies: ["Horror"],
+      relationshipStatus: "Private",
+      hometown: "Chicago",
+    };
+    expect(sanitizeProfileDetails(details)).toEqual({
+      hobbies: ["Board games"],
+      hometown: "Chicago",
+    });
+    expect(details.movies).toEqual(["Horror"]);
+  });
+
+  it("adds custom hobby bubbles case-insensitively and trims input", () => {
+    expect(addUniqueTag(["Board games"], "  Cooking  ")).toEqual([
+      "Board games",
+      "Cooking",
+    ]);
+    expect(addUniqueTag(["Board games"], "board GAMES")).toEqual([
+      "Board games",
+    ]);
   });
 });

@@ -4,10 +4,12 @@ import { X, RefreshCw } from "lucide-react";
 import { initials } from "@/lib/domain/logic";
 export function Avatar({
   name,
+  src,
   size = "normal",
   self = false,
 }: {
   name: string;
+  src?: string | null;
   size?: "small" | "normal" | "large";
   self?: boolean;
 }) {
@@ -15,7 +17,7 @@ export function Avatar({
   for (const c of name) hash += c.charCodeAt(0);
   return (
     <span className={`avatar ${size} tone-${hash % 5} ${self ? "self" : ""}`}>
-      {initials(name)}
+      {src ? <img src={src} alt="" /> : initials(name)}
     </span>
   );
 }

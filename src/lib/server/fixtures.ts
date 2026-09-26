@@ -11,8 +11,8 @@ const people = [
     industry: "Healthcare",
     hometown: "Seattle, WA",
     hobbies: ["trail running", "cooking"],
-    movies: ["Horror movies"],
     funFact: "Has visited 18 national parks",
+    graduationYear: 2027,
     classId: "10000000-0000-4000-8000-000000000001",
     clubId: "10000000-0000-4000-8000-000000000011",
   },
@@ -22,8 +22,8 @@ const people = [
     industry: "Technology",
     hometown: "Austin, TX",
     hobbies: ["live music", "cycling"],
-    movies: ["Documentaries"],
     funFact: "Makes a playlist for every trip",
+    graduationYear: 2028,
     classId: "10000000-0000-4000-8000-000000000002",
     clubId: "10000000-0000-4000-8000-000000000012",
   },
@@ -33,8 +33,8 @@ const people = [
     industry: "Consumer goods",
     hometown: "Boston, MA",
     hobbies: ["baking", "tennis"],
-    movies: ["Comedy"],
     funFact: "Can solve a Rubik’s cube",
+    graduationYear: 2028,
     classId: "10000000-0000-4000-8000-000000000003",
     clubId: "10000000-0000-4000-8000-000000000013",
   },
@@ -44,8 +44,8 @@ const people = [
     industry: "Consulting",
     hometown: "Chicago, IL",
     hobbies: ["basketball", "photography"],
-    movies: ["Science fiction"],
     funFact: "Grew up bilingual",
+    graduationYear: 2027,
     classId: "10000000-0000-4000-8000-000000000001",
     clubId: "10000000-0000-4000-8000-000000000012",
   },
@@ -55,8 +55,8 @@ const people = [
     industry: "Education",
     hometown: "Atlanta, GA",
     hobbies: ["gardening", "jazz"],
-    movies: ["Thrillers"],
     funFact: "Keeps a tiny herb garden",
+    graduationYear: 2028,
     classId: "10000000-0000-4000-8000-000000000002",
     clubId: "10000000-0000-4000-8000-000000000013",
   },
@@ -66,8 +66,8 @@ const people = [
     industry: "Finance",
     hometown: "London, UK",
     hobbies: ["soccer", "board games"],
-    movies: ["Action"],
     funFact: "Has lived in three countries",
+    graduationYear: 2027,
     classId: "10000000-0000-4000-8000-000000000003",
     clubId: "10000000-0000-4000-8000-000000000011",
   },
@@ -77,8 +77,8 @@ const people = [
     industry: "Design",
     hometown: "Portland, OR",
     hobbies: ["hiking", "illustration"],
-    movies: ["Animation"],
     funFact: "Draws a postcard from each city",
+    graduationYear: 2028,
     classId: "10000000-0000-4000-8000-000000000001",
     clubId: "10000000-0000-4000-8000-000000000013",
   },
@@ -88,22 +88,23 @@ const people = [
     industry: "Healthcare",
     hometown: "New York, NY",
     hobbies: ["volunteering", "coffee"],
-    movies: ["Mystery"],
     funFact: "Collects neighborhood café stamps",
+    graduationYear: 2027,
     classId: "10000000-0000-4000-8000-000000000002",
     clubId: "10000000-0000-4000-8000-000000000011",
   },
 ];
 
 function card(person: (typeof people)[number]): SharedCard {
+  const avatar = `/avatars/${person.name.toLowerCase().replaceAll(" ", "-")}.png`;
   return {
     id: person.id,
     displayName: person.name,
-    avatarUrl: null,
+    avatarUrl: avatar,
+    graduationYear: person.graduationYear,
     industry: person.industry,
     hometown: person.hometown,
     hobbies: person.hobbies,
-    movies: person.movies,
     funFact: person.funFact,
     classes: [
       {
@@ -141,19 +142,18 @@ export async function ensureDemoFixtures(
       people.map((p) => ({
         id: p.id,
         display_name: p.name,
-        avatar_url: null,
+        avatar_url: `/avatars/${p.name.toLowerCase().replaceAll(" ", "-")}.png`,
+        graduation_year: p.graduationYear,
         details: {
           industry: p.industry,
           hometown: p.hometown,
           hobbies: p.hobbies,
-          movies: p.movies,
           funFact: p.funFact,
         },
         default_share_fields: [
           "industry",
           "hometown",
           "hobbies",
-          "movies",
           "funFact",
           "classes",
           "clubs",
@@ -161,7 +161,7 @@ export async function ensureDemoFixtures(
         graph_visible: true,
         is_demo: true,
       })),
-      { onConflict: "id", ignoreDuplicates: true },
+      { onConflict: "id" },
     ),
   );
   const affiliations = people.flatMap((p) => [
@@ -169,12 +169,10 @@ export async function ensureDemoFixtures(
     { profile_id: p.id, affiliation_id: p.clubId },
   ]);
   checked(
-    await client
-      .from("profile_affiliations")
-      .upsert(affiliations, {
-        onConflict: "profile_id,affiliation_id",
-        ignoreDuplicates: true,
-      }),
+    await client.from("profile_affiliations").upsert(affiliations, {
+      onConflict: "profile_id,affiliation_id",
+      ignoreDuplicates: true,
+    }),
   );
   const ownCard = makeCard(profile, profile.default_share_fields);
   const links = people.map((person) => {
@@ -192,11 +190,9 @@ export async function ensureDemoFixtures(
     };
   });
   checked(
-    await client
-      .from("connections")
-      .upsert(links, {
-        onConflict: "person_a,person_b",
-        ignoreDuplicates: true,
-      }),
+    await client.from("connections").upsert(links, {
+      onConflict: "person_a,person_b",
+      ignoreDuplicates: true,
+    }),
   );
 }

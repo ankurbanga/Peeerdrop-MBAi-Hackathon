@@ -54,6 +54,7 @@ function identity(snapshot: any) {
     id: snapshot?.id,
     displayName: snapshot?.displayName ?? "Peerdrop contact",
     avatarUrl: snapshot?.avatarUrl ?? null,
+    graduationYear: snapshot?.graduationYear,
   };
 }
 

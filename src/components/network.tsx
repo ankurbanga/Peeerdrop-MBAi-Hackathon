@@ -20,22 +20,30 @@ import {
   MapPin,
   Users,
   X,
+  Heart,
+  UserRoundCheck,
+  GraduationCap,
+  Sparkles,
 } from "lucide-react";
 import type {
   Network as NetworkData,
   Filters,
   Contact,
+  AiSearchResponse,
 } from "@/lib/domain/types";
 import {
   matchesContact,
   radialPositions,
-  displayDate,
+  relativeMetTime,
+  networkStats,
 } from "@/lib/domain/logic";
 import { useResource } from "./use-resource";
 import { useSession } from "./session";
 import { Avatar, Sheet, ErrorMessage, Loading, Check } from "./ui";
 import { PersonDetail } from "./person-detail";
+import { send } from "@/lib/client";
 const nodeTypes = { person: PersonNode };
+const COHORT_SIZE = 650;
 function PersonNode({ data }: NodeProps) {
   return (
     <button
@@ -47,7 +55,11 @@ function PersonNode({ data }: NodeProps) {
       className={`person-node ${data.self ? "self-node" : ""} ${data.faded ? "faded" : ""}`}
     >
       <Handle type="target" position={Position.Top} />
-      <Avatar name={String(data.name)} self={Boolean(data.self)} />
+      <Avatar
+        name={String(data.name)}
+        src={typeof data.avatar === "string" ? data.avatar : null}
+        self={Boolean(data.self)}
+      />
       <span>{data.self ? "You" : String(data.name).split(" ")[0]}</span>
       <Handle type="source" position={Position.Bottom} />
     </button>
@@ -63,16 +75,23 @@ function Graph({
   onSelect: (id: string) => void;
 }) {
   const flow = useReactFlow();
+  const contactKey = network.contacts
+    .map((contact) => contact.card.id)
+    .join(",");
   const positions = useMemo(
     () => radialPositions(network.contacts.map((c) => c.card.id)),
-    [network.contacts.map((c) => c.card.id).join(",")],
+    [contactKey],
   );
   const nodes = [
     {
       id: network.self.id,
       type: "person",
       position: { x: 0, y: 0 },
-      data: { name: network.self.displayName, self: true },
+      data: {
+        name: network.self.displayName,
+        avatar: network.self.avatarUrl,
+        self: true,
+      },
       ariaLabel: "You",
     },
     ...network.contacts.map((c, i) => ({
@@ -80,6 +99,7 @@ function Graph({
       type: "person",
       data: {
         name: c.card.displayName,
+        avatar: c.card.avatarUrl,
         faded: !matches.has(c.connectionId),
         onOpen: () => onSelect(c.connectionId),
       },
@@ -96,7 +116,7 @@ function Graph({
         padding: 0.28,
         maxZoom: 1.05,
       }),
-    [flow, network.self.id, network.contacts.length],
+    [flow, network.self.id, contactKey],
   );
   useEffect(() => {
     const timer = setTimeout(fit, 80);
@@ -169,19 +189,22 @@ function Graph({
 function ContactRow({
   contact: c,
   onClick,
+  reason,
 }: {
   contact: Contact;
   onClick: () => void;
+  reason?: string;
 }) {
   return (
     <button className="contact-row" onClick={onClick}>
-      <Avatar name={c.card.displayName} />
+      <Avatar name={c.card.displayName} src={c.card.avatarUrl} />
       <span className="contact-row-text">
         <strong>{c.card.displayName}</strong>
         <span>{c.card.industry ?? c.card.hometown ?? "A new connection"}</span>
         <small>
-          {c.venue ?? "Your first hello"} · {displayDate(c.metAt)}
+          {c.venue ?? "Your first hello"} · {relativeMetTime(c.metAt)}
         </small>
+        {reason && <small className="ai-match-reason">{reason}</small>}
       </span>
       <ArrowUpRight size={17} />
     </button>
@@ -194,24 +217,78 @@ export function NetworkScreen() {
     [filters, setFilters] = useState<Filters>({}),
     [filterOpen, setFilterOpen] = useState(false),
     [list, setList] = useState(false),
-    [person, setPerson] = useState<string | null>(null);
+    [person, setPerson] = useState<string | null>(null),
+    [aiMode, setAiMode] = useState(false),
+    [aiResult, setAiResult] = useState<AiSearchResponse | null>(null),
+    [aiBusy, setAiBusy] = useState(false),
+    [aiError, setAiError] = useState("");
   useEffect(() => {
     const p = new URLSearchParams(location.search).get("person");
     if (p) setPerson(p);
   }, []);
-  const matches = useMemo(
-    () => data?.contacts.filter((c) => matchesContact(c, query, filters)) ?? [],
-    [data, query, filters],
-  );
+  const matches = useMemo(() => {
+    if (!data) return [];
+    if (aiMode && aiResult) {
+      const byId = new Map(data.contacts.map((c) => [c.connectionId, c]));
+      return aiResult.matches
+        .map((match) => byId.get(match.connectionId))
+        .filter((contact): contact is Contact => Boolean(contact))
+        .filter((contact) => matchesContact(contact, "", filters));
+    }
+    return data.contacts.filter((c) =>
+      matchesContact(c, aiMode ? "" : query, filters),
+    );
+  }, [aiMode, aiResult, data, query, filters]);
   const filterCount = Object.values(filters).filter((v) =>
       Array.isArray(v) ? v.length : Boolean(v),
     ).length,
-    active = Boolean(query.trim() || filterCount);
+    active = Boolean((aiMode ? aiResult : query.trim()) || filterCount);
+  const aiReasons = new Map(
+    aiResult?.matches.map((match) => [match.connectionId, match.reason]) ?? [],
+  );
+  const stats = data
+    ? networkStats(data.contacts, data.self.graduationYear ?? 2028, COHORT_SIZE)
+    : null;
+  const displayedNetwork = useMemo<NetworkData | null>(() => {
+    if (!data) return null;
+    const contacts = active ? matches : data.contacts;
+    const visibleIds = new Set(contacts.map((contact) => contact.card.id));
+    return {
+      ...data,
+      contacts,
+      edges: data.edges.filter((edge) =>
+        edge.source === data.self.id
+          ? visibleIds.has(edge.target)
+          : visibleIds.has(edge.source) && visibleIds.has(edge.target),
+      ),
+    };
+  }, [data, active, matches]);
   const events = useResource<{ id: string; title: string }[]>("/events", 0);
   function closePerson() {
     setPerson(null);
     if (location.search) history.replaceState(null, "", "/");
     void reload();
+  }
+  async function askPeerdrop() {
+    if (!aiMode) {
+      setAiMode(true);
+      setQuery("");
+      setAiResult(null);
+      setAiError("");
+      return;
+    }
+    if (query.trim().length < 2 || aiBusy) return;
+    setAiBusy(true);
+    setAiError("");
+    try {
+      setAiResult(
+        await send<AiSearchResponse>("/search/ai", { query: query.trim() }),
+      );
+    } catch (requestError) {
+      setAiError((requestError as Error).message);
+    } finally {
+      setAiBusy(false);
+    }
   }
   return (
     <div className="network-page">
@@ -227,21 +304,72 @@ export function NetworkScreen() {
           {data?.contacts.length ?? "—"} connections
         </span>
       </header>
+      <div className="network-stats" aria-label="Your network snapshot">
+        <div>
+          <strong>{stats ? `${stats.cohortPercent}%` : "—"}</strong>
+          <span>of your cohort</span>
+        </div>
+        <div>
+          <UserRoundCheck size={17} />
+          <strong>{stats?.directCount ?? "—"}</strong>
+          <span>first-degree</span>
+        </div>
+        <div>
+          <GraduationCap size={18} />
+          <strong>{stats?.secondYearCount ?? "—"}</strong>
+          <span>second-years</span>
+        </div>
+        <button
+          className={filters.favorite ? "selected" : ""}
+          aria-pressed={Boolean(filters.favorite)}
+          onClick={() =>
+            setFilters((current) => ({
+              ...current,
+              favorite: !current.favorite,
+            }))
+          }
+        >
+          <Heart size={17} fill={filters.favorite ? "currentColor" : "none"} />
+          <strong>{stats?.favoriteCount ?? "—"}</strong>
+          <span>close network</span>
+        </button>
+      </div>
       <div className="search-toolbar">
         <div className="search-input">
-          <Search size={20} />
+          {aiMode ? <Sparkles size={20} /> : <Search size={20} />}
           <input
             aria-label="Search your people"
-            placeholder="Name, hobby, industry, anything…"
+            placeholder={
+              aiMode
+                ? "Who should I invite to a board gaming party?"
+                : "Name, hobby, industry, anything…"
+            }
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && aiMode) void askPeerdrop();
+            }}
           />
           {query && (
-            <button aria-label="Clear search" onClick={() => setQuery("")}>
+            <button
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                setAiResult(null);
+              }}
+            >
               <X size={17} />
             </button>
           )}
         </div>
+        <button
+          className={`ai-search-button ${aiMode ? "selected" : ""}`}
+          disabled={aiBusy || (aiMode && query.trim().length < 2)}
+          onClick={() => void askPeerdrop()}
+        >
+          <Sparkles size={17} />
+          {aiBusy ? "Thinking…" : "Ask Peerdrop"}
+        </button>
         <button
           aria-label="Filters"
           className={`filter-button ${filterCount ? "selected" : ""}`}
@@ -258,15 +386,49 @@ export function NetworkScreen() {
           {list ? <NetworkIcon size={19} /> : <List size={19} />}
         </button>
       </div>
+      {aiMode && (
+        <div className="ai-search-note">
+          <span>
+            Ask naturally. Peerdrop only considers people and details already
+            shared with you.
+          </span>
+          <button
+            className="text-button"
+            onClick={() => {
+              setAiMode(false);
+              setAiResult(null);
+              setAiError("");
+              setQuery("");
+            }}
+          >
+            Back to regular search
+          </button>
+        </div>
+      )}
+      {aiError && <ErrorMessage error={aiError} retry={askPeerdrop} />}
       <div className="quick-filters">
         <button
           className={!active ? "selected" : ""}
           onClick={() => {
             setQuery("");
             setFilters({});
+            setAiMode(false);
+            setAiResult(null);
           }}
         >
           Everyone
+        </button>
+        <button
+          className={filters.favorite ? "selected" : ""}
+          aria-pressed={Boolean(filters.favorite)}
+          onClick={() =>
+            setFilters((current) => ({
+              ...current,
+              favorite: !current.favorite,
+            }))
+          }
+        >
+          <Heart size={13} /> Close network
         </button>
         {(
           ["class", "club", "event", "hometown", "industry", "venue"] as const
@@ -304,7 +466,7 @@ export function NetworkScreen() {
             {!list && (
               <ReactFlowProvider>
                 <Graph
-                  network={data}
+                  network={displayedNetwork ?? data}
                   matches={new Set(matches.map((c) => c.connectionId))}
                   onSelect={setPerson}
                 />
@@ -316,7 +478,9 @@ export function NetworkScreen() {
               <div className="people-panel-heading">
                 <h2>
                   {active
-                    ? "Found your people"
+                    ? aiMode
+                      ? "Peerdrop suggests"
+                      : "Found your people"
                     : list
                       ? "Your connections"
                       : "Recent hellos"}
@@ -325,7 +489,11 @@ export function NetworkScreen() {
               </div>
               {active && (
                 <p className="results-caption">
-                  Matches across the details and memories shared with you.
+                  {aiMode
+                    ? aiResult?.usedFallback
+                      ? "Smart matches from the details and memories shared with you."
+                      : "AI-ranked from the details and memories shared with you."
+                    : "Matches across the details and memories shared with you."}
                 </p>
               )}
               <div className="people-list">
@@ -333,6 +501,7 @@ export function NetworkScreen() {
                   <ContactRow
                     key={c.connectionId}
                     contact={c}
+                    reason={aiReasons.get(c.connectionId)}
                     onClick={() => setPerson(c.connectionId)}
                   />
                 ))}
@@ -341,12 +510,17 @@ export function NetworkScreen() {
                 <div className="empty-state">
                   <Search />
                   <h3>No familiar faces yet</h3>
-                  <p>Try fewer words or clear your filters.</p>
+                  <p>
+                    {aiMode
+                      ? "Try describing the occasion or interest differently."
+                      : "Try fewer words or clear your filters."}
+                  </p>
                   <button
                     className="secondary"
                     onClick={() => {
                       setQuery("");
                       setFilters({});
+                      setAiResult(null);
                     }}
                   >
                     Clear search & filters

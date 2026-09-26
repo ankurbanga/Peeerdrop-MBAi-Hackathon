@@ -62,7 +62,11 @@ export function Shell({ children }: { children: ReactNode }) {
           </div>
           {profile && (
             <Link href="/me" className="current-user">
-              <Avatar name={profile.display_name} size="small" />
+              <Avatar
+                name={profile.display_name}
+                src={profile.avatar_url}
+                size="small"
+              />
               <span>
                 {profile.display_name}
                 <small>Your personal card</small>

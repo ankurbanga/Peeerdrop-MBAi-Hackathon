@@ -48,15 +48,16 @@ test("two real browser identities exchange, persist and protect their notes", as
       const page = pages[i];
       await page.goto("/");
       await expect(
-        page.getByRole("heading", { name: "A hello worth remembering." }),
+        page.getByRole("heading", { name: "Who are you?" }),
       ).toBeVisible();
       await page.getByLabel("Display name").fill(`Browser Test ${i}`);
       await page
         .getByRole("textbox", { name: "Previous industry", exact: true })
         .fill("Healthcare");
       await page
-        .getByRole("textbox", { name: "Favorite movies", exact: true })
-        .fill("Horror movies");
+        .getByRole("textbox", { name: "Search or add a hobby", exact: true })
+        .fill("Board games");
+      await page.keyboard.press("Enter");
       await page.getByRole("button", { name: "Create my card" }).click();
       await expect(
         page.getByRole("heading", { name: "Your people." }),
@@ -70,11 +71,15 @@ test("two real browser identities exchange, persist and protect their notes", as
       .getByRole("button", { name: "Peerdrop", exact: true })
       .first()
       .click();
+    await expect(a.getByText("Say hello. Scan. Connect.")).toBeVisible();
+    await a.getByRole("button", { name: "Change what I’m sharing" }).click();
     await a
       .getByRole("checkbox", { name: "Previous industry", exact: true })
       .check();
-    await a.getByRole("button", { name: "Create my QR code" }).click();
-    await expect(a.getByText("Say hello. Scan. Connect.")).toBeVisible();
+    await expect(a.getByText("Updating your QR…")).toBeVisible();
+    await expect(
+      a.getByText("Changes update the QR automatically."),
+    ).toBeVisible();
     const stored = await a.evaluate(() =>
       JSON.parse(sessionStorage.getItem("peerdrop-active")!),
     );
@@ -83,9 +88,7 @@ test("two real browser identities exchange, persist and protect their notes", as
     await b
       .getByRole("checkbox", { name: "Previous industry", exact: true })
       .check();
-    await b
-      .getByRole("checkbox", { name: "Favorite movies", exact: true })
-      .check();
+    await b.getByRole("checkbox", { name: "Hobbies", exact: true }).check();
     await b.getByRole("button", { name: "Request exchange" }).click();
     await expect(
       a.getByRole("button", { name: "Yes, exchange cards" }),

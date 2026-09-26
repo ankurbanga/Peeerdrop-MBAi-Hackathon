@@ -1,18 +1,23 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Check as CheckIcon, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  Check as CheckIcon,
+  ShieldCheck,
+  Search,
+  X,
+} from "lucide-react";
 import { useSession, Logo } from "./session";
-import { Check, ErrorMessage } from "./ui";
+import { Avatar, Check, ErrorMessage } from "./ui";
 import { send } from "@/lib/client";
 import { shareFields, type ShareField, type Details } from "@/lib/domain/types";
+import { addUniqueTag, normalize } from "@/lib/domain/logic";
 export const fieldLabels: Record<ShareField, string> = {
   hometown: "Hometown",
   industry: "Previous industry",
   hobbies: "Hobbies",
-  movies: "Favorite movies",
   funFact: "Fun fact",
-  relationshipStatus: "Relationship status",
   phone: "Phone",
   email: "Email",
   instagram: "Instagram",
@@ -20,6 +25,75 @@ export const fieldLabels: Record<ShareField, string> = {
   classes: "Classes",
   clubs: "Clubs",
 };
+function HobbyPicker({
+  values,
+  options,
+  onChange,
+}: {
+  values: string[];
+  options: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const suggestions = options.filter(
+    (option) =>
+      !values.some((value) => normalize(value) === normalize(option)) &&
+      normalize(option).includes(normalize(query)),
+  );
+  function add(value: string) {
+    onChange(addUniqueTag(values, value));
+    setQuery("");
+  }
+  return (
+    <div className="tag-picker">
+      <div className="selected-tags">
+        {values.map((value) => (
+          <button
+            type="button"
+            key={value}
+            onClick={() => onChange(values.filter((item) => item !== value))}
+            aria-label={`Remove ${value}`}
+          >
+            {value} <X size={14} />
+          </button>
+        ))}
+      </div>
+      <div className="picker-search">
+        <Search size={17} />
+        <input
+          aria-label="Search or add a hobby"
+          placeholder="Search common hobbies or add your own"
+          value={query}
+          maxLength={200}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && query.trim()) {
+              event.preventDefault();
+              add(query);
+            }
+          }}
+        />
+      </div>
+      {(query ? suggestions : suggestions.slice(0, 6)).length > 0 && (
+        <div className="picker-options">
+          {(query ? suggestions : suggestions.slice(0, 6)).map((option) => (
+            <button type="button" key={option} onClick={() => add(option)}>
+              + {option}
+            </button>
+          ))}
+          {query.trim() &&
+            !options.some(
+              (option) => normalize(option) === normalize(query),
+            ) && (
+              <button type="button" onClick={() => add(query)}>
+                Add “{query.trim()}”
+              </button>
+            )}
+        </div>
+      )}
+    </div>
+  );
+}
 export function ShareChoices({
   selected,
   onChange,
@@ -52,11 +126,10 @@ export function ProfileEditor({
   const { profile, reload, catalog } = useSession(),
     router = useRouter();
   const [name, setName] = useState(profile?.display_name ?? ""),
+    [graduationYear, setGraduationYear] = useState(
+      profile?.graduation_year ?? 2028,
+    ),
     [details, setDetails] = useState<Details>(profile?.details ?? {}),
-    [listDrafts, setListDrafts] = useState({
-      hobbies: profile?.details.hobbies?.join(", ") ?? "",
-      movies: profile?.details.movies?.join(", ") ?? "",
-    }),
     [fields, setFields] = useState<ShareField[]>(
       profile?.default_share_fields ?? [],
     ),
@@ -64,13 +137,12 @@ export function ProfileEditor({
       profile?.affiliations.map((a) => a.id) ?? [],
     ),
     [visible, setVisible] = useState(profile?.graph_visible ?? false),
+    [spaceQuery, setSpaceQuery] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [saved, setSaved] = useState(false);
   function detail(key: keyof Details, value: string) {
-    if (key === "hobbies" || key === "movies")
-      setListDrafts((d) => ({ ...d, [key]: value }));
-    else setDetails((d) => ({ ...d, [key]: value }));
+    setDetails((d) => ({ ...d, [key]: value }));
     setSaved(false);
   }
   async function save(e: React.FormEvent) {
@@ -82,17 +154,8 @@ export function ProfileEditor({
         "/me",
         {
           displayName: name,
-          details: {
-            ...details,
-            hobbies: listDrafts.hobbies
-              .split(",")
-              .map((v) => v.trim())
-              .filter(Boolean),
-            movies: listDrafts.movies
-              .split(",")
-              .map((v) => v.trim())
-              .filter(Boolean),
-          },
+          graduationYear,
+          details,
           defaultShareFields: fields,
           graphVisible: visible,
           affiliationIds: affiliations,
@@ -120,54 +183,75 @@ export function ProfileEditor({
         </div>
       )}
       <header className="page-heading">
-        <h1>
-          {onboarding ? "A hello worth remembering." : "Your personal card"}
-        </h1>
+        <h1>{onboarding ? "Who are you?" : "Your personal card"}</h1>
         <p>
           {onboarding
-            ? "Start with your name. Everything else is up to you."
+            ? "Your name and cohort help people place the hello. You choose everything else."
             : "A little about you. Shared only when you choose."}
         </p>
       </header>
       <form onSubmit={save} className="profile-form">
-        <section>
-          <h2>{onboarding ? "Let’s start with you" : "The essentials"}</h2>
-          <label>
-            Display name
-            <input
-              required
-              maxLength={200}
-              autoComplete="name"
-              placeholder="What should people call you?"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-          <div className="field-grid">
-            {(["hometown", "industry", "hobbies", "movies"] as const).map(
-              (key) => (
-                <label key={key}>
-                  {fieldLabels[key]}
-                  <input
-                    maxLength={
-                      key === "hobbies" || key === "movies" ? 1000 : 200
-                    }
-                    placeholder={
-                      key === "hobbies" || key === "movies"
-                        ? "Separate with commas"
-                        : "Optional"
-                    }
-                    value={
-                      key === "hobbies" || key === "movies"
-                        ? listDrafts[key]
-                        : (details[key] ?? "")
-                    }
-                    onChange={(e) => detail(key, e.target.value)}
-                  />
-                </label>
-              ),
-            )}
+        <div className="directory-identity">
+          <Avatar
+            name={name || "Your profile"}
+            src={profile?.avatar_url ?? "/avatars/default-profile.png"}
+            size="large"
+          />
+          <div>
+            <strong>{name || "Your directory photo"}</strong>
+            <span>From the Kellogg directory · demo</span>
           </div>
+        </div>
+        <section>
+          <h2>The essentials</h2>
+          <div className="field-grid identity-fields">
+            <label>
+              Display name
+              <input
+                required
+                maxLength={200}
+                autoComplete="name"
+                placeholder="What should people call you?"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </label>
+            <label>
+              Graduation year
+              <select
+                required
+                value={graduationYear}
+                onChange={(e) => setGraduationYear(Number(e.target.value))}
+              >
+                {[2027, 2028, 2029, 2030].map((year) => (
+                  <option key={year} value={year}>
+                    Class of {year}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="field-grid">
+            {(["hometown", "industry"] as const).map((key) => (
+              <label key={key}>
+                {fieldLabels[key]}
+                <input
+                  maxLength={200}
+                  placeholder="Optional"
+                  value={details[key] ?? ""}
+                  onChange={(e) => detail(key, e.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+          <label className="picker-label">Hobbies</label>
+          <HobbyPicker
+            values={details.hobbies ?? []}
+            options={catalog.hobbies}
+            onChange={(hobbies) =>
+              setDetails((current) => ({ ...current, hobbies }))
+            }
+          />
           <label>
             Fun fact
             <textarea
@@ -181,32 +265,59 @@ export function ProfileEditor({
         </section>
         <section>
           <h2>Your shared spaces</h2>
-          <p className="muted">Self-selected classes and clubs.</p>
-          <div className="choice-chips">
-            {catalog.affiliations.map((a) => (
-              <label
-                className={affiliations.includes(a.id) ? "selected" : ""}
-                key={a.id}
-              >
-                <input
-                  type="checkbox"
-                  checked={affiliations.includes(a.id)}
-                  onChange={(e) =>
-                    setAffiliations(
-                      e.target.checked
-                        ? [...affiliations, a.id]
-                        : affiliations.filter((id) => id !== a.id),
+          <p className="muted">
+            Search classes and clubs synced from CampusGroups · demo
+          </p>
+          <div className="selected-tags">
+            {catalog.affiliations
+              .filter((space) => affiliations.includes(space.id))
+              .map((space) => (
+                <button
+                  type="button"
+                  key={space.id}
+                  onClick={() =>
+                    setAffiliations((current) =>
+                      current.filter((id) => id !== space.id),
                     )
                   }
-                />
-                {a.name}
-              </label>
-            ))}
+                  aria-label={`Remove ${space.name}`}
+                >
+                  {space.name} <X size={14} />
+                </button>
+              ))}
+          </div>
+          <div className="picker-search">
+            <Search size={17} />
+            <input
+              aria-label="Search CampusGroups spaces"
+              placeholder="Search classes and clubs"
+              value={spaceQuery}
+              onChange={(event) => setSpaceQuery(event.target.value)}
+            />
+          </div>
+          <div className="picker-options space-options">
+            {catalog.affiliations
+              .filter(
+                (space) =>
+                  !affiliations.includes(space.id) &&
+                  normalize(space.name).includes(normalize(spaceQuery)),
+              )
+              .map((space) => (
+                <button
+                  type="button"
+                  key={space.id}
+                  onClick={() =>
+                    setAffiliations((current) => [...current, space.id])
+                  }
+                >
+                  + {space.name}
+                </button>
+              ))}
           </div>
         </section>
         <details className="form-disclosure">
           <summary>
-            Contact details & personal context <span>Optional</span>
+            Contact details <span>Optional</span>
           </summary>
           <div className="field-grid">
             {(["phone", "email", "instagram", "linkedin"] as const).map(
@@ -237,22 +348,13 @@ export function ProfileEditor({
                 </label>
               ),
             )}
-            <label>
-              Relationship status
-              <input
-                maxLength={200}
-                value={details.relationshipStatus ?? ""}
-                placeholder="Optional · not shared by default"
-                onChange={(e) => detail("relationshipStatus", e.target.value)}
-              />
-            </label>
           </div>
         </details>
         <section>
           <h2>Choose what travels with your card</h2>
           <p className="muted">
-            Your name is always included. You can change these choices for each
-            Peerdrop.
+            Your name, photo, and cohort year are always included. You can
+            change everything else for each Peerdrop.
           </p>
           <ShareChoices selected={fields} onChange={setFields} />
         </section>

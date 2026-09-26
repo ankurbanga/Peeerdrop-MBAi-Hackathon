@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Profile, Affiliation } from "../domain/types";
 import { ApiError, checked } from "./db";
 import { profileSchema } from "../domain/validation";
+import { sanitizeProfileDetails } from "../domain/logic";
 export async function getProfile(
   client: SupabaseClient,
   authId: string,
@@ -33,7 +34,14 @@ export async function getProfile(
           ),
       )
     : [];
-  return { ...p, affiliations } as Profile;
+  return {
+    ...p,
+    details: sanitizeProfileDetails(p.details ?? {}),
+    default_share_fields: (p.default_share_fields ?? []).filter(
+      (field: string) => field !== "movies" && field !== "relationshipStatus",
+    ),
+    affiliations,
+  } as Profile;
 }
 export async function requireProfile(client: SupabaseClient, authId: string) {
   const p = await getProfile(client, authId);
@@ -67,6 +75,12 @@ export async function saveProfile(
           ...(existing ? { id: existing.id } : {}),
           auth_user_id: authId,
           display_name: v.displayName,
+          graduation_year: v.graduationYear,
+          avatar_url:
+            existing?.avatar_url ??
+            (process.env.DEMO_MODE === "true"
+              ? "/avatars/default-profile.png"
+              : null),
           details: v.details,
           default_share_fields: v.defaultShareFields,
           graph_visible: v.graphVisible,

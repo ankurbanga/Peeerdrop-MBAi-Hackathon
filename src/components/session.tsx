@@ -14,14 +14,19 @@ import { ArrowRight, RefreshCw, Unplug } from "lucide-react";
 const Context = createContext<{
   profile: Profile | null;
   reload: () => Promise<void>;
-  catalog: { affiliations: Affiliation[]; venues: string[] };
+  catalog: {
+    affiliations: Affiliation[];
+    venues: string[];
+    hobbies: string[];
+  };
 } | null>(null);
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null),
     [catalog, setCatalog] = useState<{
       affiliations: Affiliation[];
       venues: string[];
-    }>({ affiliations: [], venues: [] }),
+      hobbies: string[];
+    }>({ affiliations: [], venues: [], hobbies: [] }),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   const router = useRouter(),
@@ -145,9 +150,15 @@ export function Logo() {
         d="M15 2C15 2 4 13 4 20a11 11 0 0 0 22 0C26 13 15 2 15 2Z"
         fill="currentColor"
       />
-      <circle cx="11" cy="20" r="2" fill="white" />
-      <circle cx="19" cy="20" r="2" fill="white" />
-      <path d="M11 25h8" stroke="white" strokeWidth="2" strokeLinecap="round" />
+      <circle cx="11" cy="19" r="1.7" fill="white" />
+      <circle cx="19" cy="19" r="1.7" fill="white" />
+      <path
+        d="M10.5 23.5c1.1 2 2.6 3 4.5 3s3.4-1 4.5-3"
+        stroke="white"
+        strokeWidth="2"
+        strokeLinecap="round"
+        fill="none"
+      />
     </svg>
   );
 }

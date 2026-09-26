@@ -25,6 +25,18 @@ function receivedSnapshot(row: any, profileId: string): SharedCard {
     row.person_a === profileId ? row.snapshot_b : row.snapshot_a
   ) as SharedCard;
 }
+function hydrateLegacyDemoCard(
+  card: SharedCard,
+  current: any,
+  isDemo: boolean,
+) {
+  if (!isDemo || !current) return card;
+  return {
+    ...card,
+    avatarUrl: card.avatarUrl ?? current.avatar_url ?? null,
+    graduationYear: card.graduationYear ?? current.graduation_year,
+  };
+}
 function safeNote(note: any): Note {
   return {
     id: note.id,
@@ -61,7 +73,7 @@ export async function getNetwork(
     ),
   ];
   const ids = rows.map((r: any) => r.id);
-  const [allNotes, interests, contactProfiles] = await Promise.all([
+  const [allNotes, interests, contactProfiles, favorites] = await Promise.all([
     ids.length
       ? checked(
           await client
@@ -84,11 +96,23 @@ export async function getNetwork(
       ? checked(
           await client
             .from("profiles")
-            .select("id,graph_visible")
+            .select("id,graph_visible,avatar_url,graduation_year")
             .in("id", contactIds),
         )
       : Promise.resolve([]),
+    ids.length
+      ? checked(
+          await client
+            .from("connection_favorites")
+            .select("connection_id")
+            .eq("profile_id", profile.id)
+            .in("connection_id", ids),
+        )
+      : Promise.resolve([]),
   ]);
+  const favoriteIds = new Set(
+    (favorites as any[]).map((favorite) => favorite.connection_id),
+  );
   const sharedEventIds = new Map<string, string[]>();
   for (const row of interests as any[])
     sharedEventIds.set(row.profile_id, [
@@ -116,9 +140,16 @@ export async function getNetwork(
   const visible = new Map<string, boolean>(
     (contactProfiles as any[]).map((p) => [p.id, p.graph_visible === true]),
   );
+  const currentProfiles = new Map(
+    (contactProfiles as any[]).map((profile) => [profile.id, profile]),
+  );
   const contacts: Contact[] = rows.map((row: any) => {
     const otherId = row.person_a === profile.id ? row.person_b : row.person_a;
-    const card = receivedSnapshot(row, profile.id);
+    const card = hydrateLegacyDemoCard(
+      receivedSnapshot(row, profile.id),
+      currentProfiles.get(otherId),
+      row.is_demo === true,
+    );
     const notes = (allNotes as any[])
       .filter(
         (n) =>
@@ -142,6 +173,7 @@ export async function getNetwork(
       commonAffiliationIds: commonAffiliations(profile, card),
       eventIds,
       mutualCount: 0,
+      favorite: favoriteIds.has(row.id),
     };
   });
   let relatedEdges: { source: string; target: string }[] = [];
@@ -172,6 +204,7 @@ export async function getNetwork(
       id: profile.id,
       displayName: profile.display_name,
       avatarUrl: profile.avatar_url,
+      graduationYear: profile.graduation_year,
     },
     contacts,
     edges,
@@ -195,8 +228,8 @@ export async function getConnectionDetail(
     throw new ApiError(404, "NOT_FOUND", "This contact could not be found.");
   if (row.person_a !== profile.id && row.person_b !== profile.id)
     throw new ApiError(404, "NOT_FOUND", "This contact could not be found.");
-  const card = receivedSnapshot(row, profile.id);
-  const [notes, interests] = await Promise.all([
+  const otherId = row.person_a === profile.id ? row.person_b : row.person_a;
+  const [notes, favorite, interests, currentContact] = await Promise.all([
     checked(
       await client
         .from("notes")
@@ -206,12 +239,33 @@ export async function getConnectionDetail(
     ),
     checked(
       await client
+        .from("connection_favorites")
+        .select("connection_id")
+        .eq("profile_id", profile.id)
+        .eq("connection_id", connectionId)
+        .maybeSingle(),
+    ),
+    checked(
+      await client
         .from("event_interests")
         .select("profile_id,event_id,share_with_connections")
         .in("profile_id", [row.person_a, row.person_b]),
     ),
+    row.is_demo
+      ? checked(
+          await client
+            .from("profiles")
+            .select("id,avatar_url,graduation_year")
+            .eq("id", otherId)
+            .maybeSingle(),
+        )
+      : Promise.resolve(null),
   ]);
-  const otherId = row.person_a === profile.id ? row.person_b : row.person_a;
+  const card = hydrateLegacyDemoCard(
+    receivedSnapshot(row, profile.id),
+    currentContact,
+    row.is_demo === true,
+  );
   const ownEvents = new Set(
     (interests as any[])
       .filter((i) => i.profile_id === profile.id)
@@ -254,7 +308,32 @@ export async function getConnectionDetail(
     commonAffiliationIds: commonAffiliations(profile, card),
     eventIds,
     mutualCount: 0,
+    favorite: Boolean(favorite),
   };
+}
+
+export async function setConnectionFavorite(
+  client: SupabaseClient,
+  authId: string,
+  connectionId: string,
+  favorite: boolean,
+) {
+  const { profile } = await authorizedConnection(client, authId, connectionId);
+  if (favorite)
+    checked(
+      await client
+        .from("connection_favorites")
+        .upsert({ profile_id: profile.id, connection_id: connectionId }),
+    );
+  else
+    checked(
+      await client
+        .from("connection_favorites")
+        .delete()
+        .eq("profile_id", profile.id)
+        .eq("connection_id", connectionId),
+    );
+  return { favorite };
 }
 
 export async function authorizedConnection(

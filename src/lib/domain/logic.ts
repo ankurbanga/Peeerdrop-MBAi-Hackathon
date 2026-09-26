@@ -6,11 +6,27 @@ import type {
   Filters,
   Edge,
 } from "./types";
+export function sanitizeProfileDetails(input: Record<string, unknown>) {
+  const {
+    movies: _movies,
+    relationshipStatus: _relationship,
+    ...details
+  } = input;
+  return details;
+}
+
+export function addUniqueTag(values: string[], value: string) {
+  const next = value.trim();
+  if (!next || values.some((item) => normalize(item) === normalize(next)))
+    return values;
+  return [...values, next].slice(0, 20);
+}
 export function makeCard(p: Profile, fields: ShareField[]): SharedCard {
   const card: SharedCard = {
     id: p.id,
     displayName: p.display_name,
     avatarUrl: p.avatar_url,
+    graduationYear: p.graduation_year,
   };
   for (const key of fields) {
     if (key === "classes" || key === "clubs") {
@@ -47,6 +63,7 @@ export function chicagoDay(v: string) {
   }).format(new Date(v));
 }
 export function matchesContact(c: Contact, q: string, f: Filters): boolean {
+  if (f.favorite && !c.favorite) return false;
   const values = (o: unknown): string =>
     Array.isArray(o)
       ? o.map(values).join(" ")
@@ -109,11 +126,10 @@ export function mutualCounts(
 }
 export function matchingInterestTags(
   tags: string[],
-  details: { hobbies?: string[]; movies?: string[]; industry?: string },
+  details: { hobbies?: string[]; industry?: string },
 ): string[] {
   const interests = [
     ...(details.hobbies ?? []),
-    ...(details.movies ?? []),
     ...(details.industry ? [details.industry] : []),
   ]
     .map(normalize)
@@ -204,4 +220,49 @@ export function displayDate(value: string) {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+export function displayDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+export function relativeMetTime(value: string, now = new Date()) {
+  const dayNumber = (date: string) =>
+    Date.parse(`${chicagoDay(date)}T12:00:00Z`) / 86_400_000;
+  const days = Math.max(0, dayNumber(now.toISOString()) - dayNumber(value));
+  if (days === 0) return "Met today";
+  if (days === 1) return "Met yesterday";
+  if (days < 7) return `Met ${days} days ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `Met ${weeks} ${weeks === 1 ? "week" : "weeks"} ago`;
+  const months = Math.floor(days / 30);
+  return `Met ${months} ${months === 1 ? "month" : "months"} ago`;
+}
+
+export function networkStats(
+  contacts: Contact[],
+  graduationYear: number,
+  cohortSize: number,
+) {
+  const cohortConnections = contacts.filter(
+    (contact) => contact.card.graduationYear === graduationYear,
+  ).length;
+  return {
+    cohortPercent:
+      cohortSize > 0
+        ? Math.round((cohortConnections / cohortSize) * 1000) / 10
+        : 0,
+    directCount: contacts.length,
+    secondYearCount: contacts.filter(
+      (contact) => contact.card.graduationYear === graduationYear - 1,
+    ).length,
+    favoriteCount: contacts.filter((contact) => contact.favorite).length,
+  };
 }

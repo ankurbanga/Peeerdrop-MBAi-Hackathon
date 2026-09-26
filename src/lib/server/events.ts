@@ -129,16 +129,14 @@ export async function setEventInterest(
     return { eventId, interested: false, shareWithConnections: false };
   }
   checked(
-    await client
-      .from("event_interests")
-      .upsert(
-        {
-          profile_id: profile.id,
-          event_id: eventId,
-          share_with_connections: input.shareWithConnections,
-        },
-        { onConflict: "profile_id,event_id" },
-      ),
+    await client.from("event_interests").upsert(
+      {
+        profile_id: profile.id,
+        event_id: eventId,
+        share_with_connections: input.shareWithConnections,
+      },
+      { onConflict: "profile_id,event_id" },
+    ),
   );
   return {
     eventId,
@@ -158,5 +156,22 @@ export async function getCatalog(client: SupabaseClient) {
     ),
     checked(await client.from("venue_labels").select("label").order("label")),
   ]);
-  return { affiliations, venues: (venues as any[]).map((v) => v.label) };
+  return {
+    affiliations,
+    venues: (venues as any[]).map((v) => v.label),
+    hobbies: [
+      "Board games",
+      "Cooking",
+      "Cycling",
+      "Hiking",
+      "Live music",
+      "Photography",
+      "Running",
+      "Soccer",
+      "Tennis",
+      "Travel",
+      "Volunteering",
+      "Yoga",
+    ],
+  };
 }

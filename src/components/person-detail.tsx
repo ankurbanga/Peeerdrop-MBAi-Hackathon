@@ -9,9 +9,14 @@ import {
   ArrowUpRight,
   Pencil,
   Trash2,
+  Heart,
 } from "lucide-react";
 import type { Contact, Note } from "@/lib/domain/types";
-import { displayDate } from "@/lib/domain/logic";
+import {
+  displayDate,
+  displayDateTime,
+  relativeMetTime,
+} from "@/lib/domain/logic";
 import { send, api } from "@/lib/client";
 import { useResource } from "./use-resource";
 import { useSession } from "./session";
@@ -53,9 +58,30 @@ export function PersonDetail({ id }: { id: string }) {
   return (
     <div className="person-detail">
       <div className="person-hero">
-        <Avatar name={card.displayName} size="large" />
+        <Avatar name={card.displayName} src={card.avatarUrl} size="large" />
         <h2>{card.displayName}</h2>
         {card.industry && <p>{card.industry}</p>}
+        {card.graduationYear && (
+          <p className="cohort-label">Class of {card.graduationYear}</p>
+        )}
+        <button
+          className={`favorite-toggle ${c.favorite ? "selected" : ""}`}
+          aria-pressed={c.favorite}
+          aria-label={`${c.favorite ? "Remove" : "Add"} ${card.displayName} ${c.favorite ? "from" : "to"} close network`}
+          disabled={busy}
+          onClick={() =>
+            mutate(() =>
+              send(
+                `/connections/${id}/favorite`,
+                { favorite: !c.favorite },
+                "PUT",
+              ),
+            )
+          }
+        >
+          <Heart size={16} fill={c.favorite ? "currentColor" : "none"} />
+          {c.favorite ? "In your close network" : "Add to close network"}
+        </button>
         {c.isDemo && <span className="demo-label">Fictional demo contact</span>}
       </div>
       <div className="met-context">
@@ -63,7 +89,7 @@ export function PersonDetail({ id }: { id: string }) {
         <div>
           <strong>{c.venue ? `Met at ${c.venue}` : "Your first hello"}</strong>
           <small>
-            {displayDate(c.metAt)} · America/Chicago
+            {relativeMetTime(c.metAt)} · {displayDateTime(c.metAt)} CT
             {c.eventTitle ? ` · ${c.eventTitle}` : ""}
           </small>
         </div>
@@ -241,9 +267,7 @@ export function PersonDetail({ id }: { id: string }) {
             [
               "hometown",
               "hobbies",
-              "movies",
               "funFact",
-              "relationshipStatus",
             ] as const
           )
             .filter((k) => Boolean(card[k]))
@@ -254,9 +278,7 @@ export function PersonDetail({ id }: { id: string }) {
                     {
                       hometown: "From",
                       hobbies: "Into",
-                      movies: "Movie shelf",
                       funFact: "Fun fact",
-                      relationshipStatus: "Personal context",
                     }[k]
                   }
                 </dt>

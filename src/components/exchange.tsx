@@ -1,12 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
-import { CheckCircle2, Copy, ShieldCheck, ArrowRight } from "lucide-react";
+import {
+  CheckCircle2,
+  Copy,
+  ShieldCheck,
+  ArrowRight,
+  SlidersHorizontal,
+} from "lucide-react";
 import { api, send } from "@/lib/client";
 import { exchangeExpired } from "@/lib/domain/exchange";
 import { makeCard } from "@/lib/domain/logic";
-import type { ExchangeState, ShareField } from "@/lib/domain/types";
+import {
+  shareFields as shareFieldOptions,
+  type ExchangeState,
+  type ShareField,
+} from "@/lib/domain/types";
 import { useSession } from "./session";
 import { Avatar, Check, ErrorMessage, Loading } from "./ui";
 import { ShareChoices, fieldLabels } from "./profile-editor";
@@ -30,7 +40,11 @@ export function Exchange({
     [token, setToken] = useState(""),
     [preview, setPreview] = useState<{
       id?: string;
-      initiator?: { displayName: string };
+      initiator?: {
+        displayName: string;
+        avatarUrl?: string | null;
+        graduationYear?: number;
+      };
       displayName?: string;
       venue?: string;
       status?: string;
@@ -39,7 +53,11 @@ export function Exchange({
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [copied, setCopied] = useState(false),
-    [terminal, setTerminal] = useState(false);
+    [terminal, setTerminal] = useState(false),
+    [editing, setEditing] = useState(false),
+    [readyToCreate, setReadyToCreate] = useState(receiver);
+  const creating = useRef(false),
+    lastCreatedSignature = useRef("");
   const state = useResource<ExchangeState>(
     id && !terminal ? `/exchanges/${id}` : null,
     2000,
@@ -67,11 +85,39 @@ export function Exchange({
         const saved = JSON.parse(stored);
         setId(saved.id);
         setUrl(saved.url ?? "");
+        if (Array.isArray(saved.shareFields))
+          setFields(
+            saved.shareFields.filter((field: unknown): field is ShareField =>
+              shareFieldOptions.includes(field as ShareField),
+            ),
+          );
+        setVenue(typeof saved.venue === "string" ? saved.venue : "");
+        setEventId(typeof saved.eventId === "string" ? saved.eventId : "");
+        lastCreatedSignature.current = saved.signature ?? inviteSignature();
       } catch {
         sessionStorage.removeItem("peerdrop-active");
       }
     }
+    setReadyToCreate(true);
   }, [receiver]);
+  useEffect(() => {
+    if (receiver || !profile || !readyToCreate || id || creating.current)
+      return;
+    void createInvite();
+  }, [id, profile, readyToCreate, receiver]);
+  useEffect(() => {
+    if (
+      receiver ||
+      !editing ||
+      !id ||
+      !url ||
+      busy ||
+      inviteSignature() === lastCreatedSignature.current
+    )
+      return;
+    const timer = window.setTimeout(() => void replaceInvite(), 450);
+    return () => window.clearTimeout(timer);
+  }, [busy, editing, eventId, fields, id, receiver, url, venue]);
   useEffect(() => {
     if (state.data) {
       setLastState(state.data);
@@ -108,6 +154,9 @@ export function Exchange({
     setTerminal(false);
     setUrl("");
     setError("");
+    setEditing(false);
+    creating.current = false;
+    lastCreatedSignature.current = "";
     if (receiver) {
       sessionStorage.removeItem("peerdrop-invite");
       router.push("/");
@@ -123,6 +172,63 @@ export function Exchange({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+  function inviteSignature() {
+    return JSON.stringify({
+      fields: [...fields].sort(),
+      venue: venue.trim(),
+      eventId,
+    });
+  }
+  async function createInvite() {
+    if (creating.current) return;
+    creating.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const signature = inviteSignature();
+      const result = await send<{ id: string; url: string }>("/exchanges", {
+        shareFields: fields,
+        ...(venue.trim() ? { venue: venue.trim() } : {}),
+        ...(eventId ? { eventId } : {}),
+      });
+      setId(result.id);
+      setUrl(result.url);
+      setTerminal(false);
+      setLastState(null);
+      lastCreatedSignature.current = signature;
+      sessionStorage.setItem(
+        "peerdrop-active",
+        JSON.stringify({
+          ...result,
+          signature,
+          shareFields: fields,
+          venue: venue.trim(),
+          eventId,
+        }),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      creating.current = false;
+      setBusy(false);
+    }
+  }
+  async function replaceInvite() {
+    if (!id || creating.current) return;
+    creating.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      await send(`/exchanges/${id}/cancel`, {});
+      creating.current = false;
+      await createInvite();
+      await state.reload();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+      creating.current = false;
     }
   }
   if (!profile) return <Loading />;
@@ -186,7 +292,14 @@ export function Exchange({
     );
   return (
     <div className="exchange-flow">
-      {!id ? (
+      {!id && !receiver ? (
+        <div className="empty-state exchange-loading">
+          <span className="pulse-dot" />
+          <h2>Making your Peerdrop…</h2>
+          <p>Your saved sharing preferences are already included.</p>
+          {error && <ErrorMessage error={error} retry={createInvite} />}
+        </div>
+      ) : !id ? (
         <>
           <p className="lead">
             {receiver
@@ -201,6 +314,7 @@ export function Exchange({
                   preview.displayName ??
                   "New connection"
                 }
+                src={preview.initiator?.avatarUrl}
               />
               <span>
                 <strong>
@@ -209,7 +323,12 @@ export function Exchange({
                     "Someone"}{" "}
                   wants to connect
                 </strong>
-                <small>{preview.venue || "Meeting in person"}</small>
+                <small>
+                  {preview.initiator?.graduationYear
+                    ? `Class of ${preview.initiator.graduationYear} · `
+                    : ""}
+                  {preview.venue || "Meeting in person"}
+                </small>
               </span>
             </div>
           )}
@@ -219,18 +338,23 @@ export function Exchange({
           </p>
           <ShareChoices selected={fields} onChange={setFields} />
           <div className="outgoing-card">
-            <Avatar name={profile.display_name} />
+            <Avatar name={profile.display_name} src={profile.avatar_url} />
             <div>
               <strong>{profile.display_name}</strong>
               <small>
+                Photo when available · Class of {profile.graduation_year}
                 {chosen.length
-                  ? chosen.map((f) => fieldLabels[f]).join(" · ")
-                  : "Name only"}
+                  ? ` · ${chosen.map((f) => fieldLabels[f]).join(" · ")}`
+                  : ""}
               </small>
             </div>
           </div>
           <details className="card-preview">
             <summary>Preview your outgoing details</summary>
+            <p>
+              <strong>Always shared: </strong>
+              Name, photo when available, Class of {profile.graduation_year}
+            </p>
             {chosen.map((f) => (
               <p key={f}>
                 <strong>{fieldLabels[f]}: </strong>
@@ -301,27 +425,11 @@ export function Exchange({
                     shareFields: fields,
                   });
                   setId(r.id);
-                } else {
-                  const r = await send<{ id: string; url: string }>(
-                    "/exchanges",
-                    {
-                      shareFields: fields,
-                      ...(venue ? { venue } : {}),
-                      ...(eventId ? { eventId } : {}),
-                    },
-                  );
-                  setId(r.id);
-                  setUrl(r.url);
-                  sessionStorage.setItem("peerdrop-active", JSON.stringify(r));
                 }
               })
             }
           >
-            {busy
-              ? "One moment…"
-              : receiver
-                ? "Request exchange"
-                : "Create my QR code"}
+            {busy ? "One moment…" : "Request exchange"}
             <ArrowRight size={18} />
           </button>
         </>
@@ -363,6 +471,58 @@ export function Exchange({
                 <Copy size={16} />
                 {copied ? "Link copied" : "Copy exchange link"}
               </button>
+              <button
+                className="text-button full"
+                aria-expanded={editing}
+                onClick={() => setEditing((value) => !value)}
+              >
+                <SlidersHorizontal size={16} />
+                {editing ? "Done changing" : "Change what I’m sharing"}
+              </button>
+              {editing && (
+                <fieldset className="exchange-preferences" disabled={busy}>
+                  <legend>Included in this Peerdrop</legend>
+                  <p className="muted">
+                    This only changes this QR. Your saved defaults stay the
+                    same.
+                  </p>
+                  <ShareChoices selected={fields} onChange={setFields} />
+                  <label>
+                    Where did you meet?
+                    <input
+                      list="venues"
+                      placeholder="Choose a place or type your own"
+                      maxLength={200}
+                      value={venue}
+                      onChange={(event) => setVenue(event.target.value)}
+                    />
+                    <datalist id="venues">
+                      {catalog.venues.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </datalist>
+                  </label>
+                  <label>
+                    At an event? <span className="muted">Optional</span>
+                    <select
+                      value={eventId}
+                      onChange={(event) => setEventId(event.target.value)}
+                    >
+                      <option value="">No event selected</option>
+                      {events.data?.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="fine-print">
+                    {busy
+                      ? "Updating your QR…"
+                      : "Changes update the QR automatically."}
+                  </p>
+                </fieldset>
+              )}
             </>
           )}
           {active?.status === "requested" && active.isInitiator ? (
